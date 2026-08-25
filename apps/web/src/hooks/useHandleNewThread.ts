@@ -33,6 +33,7 @@ import { primaryServerSettingsAtom } from "../state/server";
 import { resolveThreadRouteTarget } from "../threadRoutes";
 import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
 import { useClientSettings } from "./useSettings";
+import { toastManager } from "../components/ui/toast";
 
 interface NewThreadWorkspaceOptions {
   branch?: string | null;
@@ -78,7 +79,7 @@ export function useNewThreadHandler() {
         startFromOrigin?: boolean;
         replace?: boolean;
         /**
-         * Move the viewed draft's typed content (prompt + images) into the
+         * Move the viewed draft's typed content and transferable attachments into the
          * draft this request lands on. Set by the draft repo picker: the
          * user started writing in the wrong project and the text should
          * follow them. Explicit new-thread surfaces leave this unset and
@@ -156,6 +157,14 @@ export function useNewThreadHandler() {
           composerDraftHasUserContent(getComposerDraft(carryContentSourceDraftId))
         ) {
           moveComposerPromptAndImages(carryContentSourceDraftId, destinationDraftId);
+          const remainingFiles = getComposerDraft(carryContentSourceDraftId)?.files ?? [];
+          if (remainingFiles.length > 0) {
+            toastManager.add({
+              type: "warning",
+              title: `${remainingFiles.length} file${remainingFiles.length === 1 ? " stayed" : "s stayed"} in the original draft`,
+              description: "Return to the original draft or attach the files again.",
+            });
+          }
         }
       };
       const project = projects.find(
