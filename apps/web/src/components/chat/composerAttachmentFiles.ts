@@ -15,9 +15,9 @@ const IMAGE_MIME_TYPE_BY_EXTENSION: Readonly<Record<string, string>> = {
 
 /**
  * Some sources (drags from other apps, files piped through a shell) hand over
- * a `File` with an empty MIME type. Maps the extension to a provider-supported
- * image type so a plain `photo.jpg` still lands on the image path; anything
- * unrecognized stays a generic file.
+ * a `File` with an empty or generic MIME type. Maps the extension to a
+ * provider-supported image type so a plain `photo.jpg` still lands on the
+ * image path; anything unrecognized stays a generic file.
  */
 export function inferImageMimeTypeFromName(name: string): string | null {
   const dotIndex = name.lastIndexOf(".");
@@ -27,19 +27,58 @@ export function inferImageMimeTypeFromName(name: string): string | null {
   return IMAGE_MIME_TYPE_BY_EXTENSION[name.slice(dotIndex + 1).toLowerCase()] ?? null;
 }
 
+function inferImageMimeTypeForUnknownFile(file: Pick<File, "name" | "type">): string | null {
+  const mimeType = file.type.toLowerCase();
+  if (mimeType !== "" && mimeType !== "application/octet-stream") {
+    return null;
+  }
+  return inferImageMimeTypeFromName(file.name);
+}
+
+/** Give extension-recognized images a concrete type before compression. */
+export function normalizeComposerImageFileMimeType(file: File): File {
+  const inferredMimeType = inferImageMimeTypeForUnknownFile(file);
+  if (!inferredMimeType) {
+    return file;
+  }
+  return new File([file], file.name, {
+    type: inferredMimeType,
+    lastModified: file.lastModified,
+  });
+}
+
 export function classifyComposerAttachmentFile(
   file: Pick<File, "name" | "type">,
 ): ComposerAttachmentFileKind {
   if (isHeicImageFile(file)) {
     return "image";
   }
-  if (file.type === "") {
-    return inferImageMimeTypeFromName(file.name) ? "image" : "file";
+  if (inferImageMimeTypeForUnknownFile(file)) {
+    return "image";
   }
   if (!file.type.toLowerCase().startsWith("image/")) {
     return "file";
   }
   return isProviderSendTurnSupportedImageMimeType(file.type) ? "image" : "unsupported-image";
+}
+
+/** Why retained generic files cannot send with the current server config. */
+export function fileAttachmentCapabilityBlockReason(input: {
+  readonly fileCount: number;
+  readonly attachmentUploadsCapabilityKnown: boolean;
+  readonly supportsAttachmentUploads: boolean;
+  readonly maxFileAttachmentBytes: number | null;
+}): string | null {
+  if (input.fileCount === 0) {
+    return null;
+  }
+  if (!input.attachmentUploadsCapabilityKnown) {
+    return "Waiting for the server before file attachments can send";
+  }
+  if (!input.supportsAttachmentUploads || input.maxFileAttachmentBytes === null) {
+    return "This server does not accept file attachments right now. Remove the files to send.";
+  }
+  return null;
 }
 
 /**
@@ -68,7 +107,6 @@ export function attachmentsToReleaseOnUploadCapabilityLoss(
 export function shouldHandleComposerAttachmentPaste(input: {
   readonly files: ReadonlyArray<File>;
   readonly plainText: string;
-  readonly maxFileAttachmentBytes: number | null;
 }): boolean {
   if (
     input.files.some((file) => {
@@ -79,15 +117,9 @@ export function shouldHandleComposerAttachmentPaste(input: {
     return true;
   }
 
-  const maxFileAttachmentBytes = input.maxFileAttachmentBytes;
-  if (input.plainText.length > 0 || maxFileAttachmentBytes === null) {
+  if (input.plainText.length > 0) {
     return false;
   }
 
-  return input.files.some(
-    (file) =>
-      classifyComposerAttachmentFile(file) === "file" &&
-      file.size > 0 &&
-      file.size <= maxFileAttachmentBytes,
-  );
+  return input.files.some((file) => classifyComposerAttachmentFile(file) === "file");
 }

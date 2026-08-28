@@ -260,6 +260,7 @@ import { useKnownTerminalSessions, useThreadRunningTerminalIds } from "../state/
 import { projectEnvironment } from "../state/projects";
 import { useEnvironmentQuery } from "../state/query";
 import {
+  environmentServerConfigsAtom,
   primaryServerAvailableEditorsAtom,
   primaryServerKeybindingsAtom,
   primaryServerSettingsAtom,
@@ -381,6 +382,8 @@ import { sanitizeThreadErrorMessage } from "~/rpc/transportError";
 import { RightPanelSheet } from "./RightPanelSheet";
 import { previewEnvironment } from "../state/preview";
 import { clampFileAttachmentUploadBytes } from "@t3tools/client-runtime/state/attachments";
+import { appAtomRegistry } from "../rpc/atomRegistry";
+import { fileAttachmentCapabilityBlockReason } from "./chat/composerAttachmentFiles";
 import { assetEnvironment } from "../state/assets";
 import { readPreparedConnection } from "../state/session";
 import { useAtomCommand } from "../state/use-atom-command";
@@ -5747,8 +5750,34 @@ function ChatViewContent(props: ChatViewProps) {
       return;
     }
 
+    const readLiveAttachmentCapabilities = () => {
+      const config = appAtomRegistry.get(environmentServerConfigsAtom).get(environmentId) ?? null;
+      const liveSupportsAttachmentUploads =
+        config?.environment.capabilities.attachmentUploads === true;
+      return {
+        supportsAttachmentUploads: liveSupportsAttachmentUploads,
+        fileBlockReason: fileAttachmentCapabilityBlockReason({
+          fileCount: composerFilesSnapshot.length,
+          attachmentUploadsCapabilityKnown: config !== null,
+          supportsAttachmentUploads: liveSupportsAttachmentUploads,
+          maxFileAttachmentBytes:
+            config?.environment.capabilities.fileAttachments?.maxUploadBytes ?? null,
+        }),
+      };
+    };
+
     sendInFlightRef.current = true;
-    if (supportsAttachmentUploads && composerAttachmentsSnapshot.length > 0) {
+    const attachmentCapabilitiesBeforeUpload = readLiveAttachmentCapabilities();
+    if (attachmentCapabilitiesBeforeUpload.fileBlockReason !== null) {
+      sendInFlightRef.current = false;
+      setThreadError(threadIdForSend, attachmentCapabilitiesBeforeUpload.fileBlockReason);
+      return;
+    }
+    const turnUsesAttachmentUploads =
+      composerFilesSnapshot.length > 0
+        ? attachmentCapabilitiesBeforeUpload.supportsAttachmentUploads
+        : supportsAttachmentUploads;
+    if (turnUsesAttachmentUploads && composerAttachmentsSnapshot.length > 0) {
       for (const attachment of composerAttachmentsSnapshot) {
         startAttachmentUpload({
           environmentId,
@@ -5757,6 +5786,12 @@ function ChatViewContent(props: ChatViewProps) {
         });
       }
       await awaitAttachmentUploads(composerAttachmentsSnapshot.map((attachment) => attachment.id));
+      const attachmentCapabilitiesAfterUpload = readLiveAttachmentCapabilities();
+      if (attachmentCapabilitiesAfterUpload.fileBlockReason !== null) {
+        sendInFlightRef.current = false;
+        setThreadError(threadIdForSend, attachmentCapabilitiesAfterUpload.fileBlockReason);
+        return;
+      }
       if (getUploadedAttachments({ environmentId, images: composerAttachmentsSnapshot }) === null) {
         sendInFlightRef.current = false;
         setThreadError(threadIdForSend, "Retry or remove failed uploads before sending.");
@@ -5788,6 +5823,16 @@ function ChatViewContent(props: ChatViewProps) {
       void dockTransition.catch(() => resolveDockStarted?.());
       await dockStarted;
     }
+
+    const attachmentCapabilitiesBeforeDispatch = readLiveAttachmentCapabilities();
+    if (attachmentCapabilitiesBeforeDispatch.fileBlockReason !== null) {
+      sendInFlightRef.current = false;
+      setThreadError(threadIdForSend, attachmentCapabilitiesBeforeDispatch.fileBlockReason);
+      setDockedDraftHeroThreadKey((currentThreadKey) =>
+        currentThreadKey === activeThreadKey ? null : currentThreadKey,
+      );
+      return;
+    }
     beginLocalDispatch({
       preparingWorktree: Boolean(baseBranchForWorktree),
       submissionIntent: resolvedSubmissionIntent,
@@ -5797,7 +5842,7 @@ function ChatViewContent(props: ChatViewProps) {
     const messageCreatedAt = new Date().toISOString();
     const turnAttachmentsPromise = Promise.all(
       composerAttachmentsSnapshot.map(async (attachment) => {
-        if (supportsAttachmentUploads) {
+        if (turnUsesAttachmentUploads) {
           const uploaded = getUploadedAttachments({ environmentId, images: [attachment] })?.[0];
           if (!uploaded) {
             throw new Error(`Attachment '${attachment.name}' did not finish uploading.`);
@@ -5944,7 +5989,14 @@ function ChatViewContent(props: ChatViewProps) {
       }
     }
 
-    const turnAttachmentsResult = await settlePromise(() => turnAttachmentsPromise);
+    const turnAttachmentsResult = await settlePromise(async () => {
+      const turnAttachments = await turnAttachmentsPromise;
+      const liveFileBlockReason = readLiveAttachmentCapabilities().fileBlockReason;
+      if (liveFileBlockReason !== null) {
+        throw new Error(liveFileBlockReason);
+      }
+      return turnAttachments;
+    });
     if (failure === null && turnAttachmentsResult._tag === "Failure") {
       failure = turnAttachmentsResult;
     }
@@ -6014,7 +6066,7 @@ function ChatViewContent(props: ChatViewProps) {
         failure = startResult;
       } else {
         turnStartSucceeded = true;
-        if (supportsAttachmentUploads) {
+        if (turnUsesAttachmentUploads) {
           releaseDraftAttachments(composerAttachmentsSnapshot);
         }
         acknowledgeActiveThreadWoke();

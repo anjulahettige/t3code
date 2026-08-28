@@ -84,7 +84,8 @@ import {
 import {
   attachmentsToReleaseOnUploadCapabilityLoss,
   classifyComposerAttachmentFile,
-  inferImageMimeTypeFromName,
+  fileAttachmentCapabilityBlockReason,
+  normalizeComposerImageFileMimeType,
   shouldHandleComposerAttachmentPaste,
 } from "./composerAttachmentFiles";
 import {
@@ -779,34 +780,27 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const nonPersistedComposerImageIds = composerDraft.nonPersistedImageIds;
   const uploadsByImageId = useAttachmentUploadStore((state) => state.uploadsByImageId);
   const needsReattachFileCount = composerFiles.filter(composerFileNeedsReattach).length;
-  // On a server without file support there is no paperclip, so "attach again"
-  // is advice the UI cannot back up; removing is the only recovery there.
-  // While the capability answer is pending the optimistic wording stays, to
-  // match the send path's "waiting" state.
-  const canReattachFiles = !attachmentUploadsCapabilityKnown || maxFileAttachmentBytes !== null;
-  const attachmentBlockReason = supportsAttachmentUploads
-    ? needsReattachFileCount > 0
-      ? needsReattachFileCount === 1
-        ? canReattachFiles
+  const supportsFileAttachments = supportsAttachmentUploads && maxFileAttachmentBytes !== null;
+  const canReattachFiles = !attachmentUploadsCapabilityKnown || supportsFileAttachments;
+  const fileCapabilityBlockReason = fileAttachmentCapabilityBlockReason({
+    fileCount: composerFiles.length,
+    attachmentUploadsCapabilityKnown,
+    supportsAttachmentUploads,
+    maxFileAttachmentBytes,
+  });
+  const attachmentBlockReason =
+    fileCapabilityBlockReason ??
+    (supportsAttachmentUploads
+      ? needsReattachFileCount > 0
+        ? needsReattachFileCount === 1
           ? "Attach the interrupted file again or remove it"
-          : "Remove the interrupted file to send"
-        : canReattachFiles
-          ? "Attach the interrupted files again or remove them"
-          : "Remove the interrupted files to send"
-      : attachmentUploadBlockReason({
-          imageIds: [...composerImages, ...composerFiles].map((attachment) => attachment.id),
-          uploadsByImageId,
-          environmentId,
-        })
-    : // Retained files cannot upload while uploads are unavailable; sending
-      // would clear the draft, fail server-side, and bounce back. Until the
-      // capability answer arrives the wording stays neutral: the server may
-      // well support files.
-      composerFiles.length > 0
-      ? attachmentUploadsCapabilityKnown
-        ? "This server does not accept file attachments right now. Remove the files to send."
-        : "Waiting for the server before file attachments can send"
-      : null;
+          : "Attach the interrupted files again or remove them"
+        : attachmentUploadBlockReason({
+            imageIds: [...composerImages, ...composerFiles].map((attachment) => attachment.id),
+            uploadsByImageId,
+            environmentId,
+          })
+      : null);
   const sendDisabledReason =
     externalSendDisabledReason ?? (activePendingProgress ? null : attachmentBlockReason);
   const isSendDisabled = sendDisabledReason !== null;
@@ -863,7 +857,15 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       }
       return;
     }
-    for (const attachment of [...composerImages, ...composerFiles]) {
+    if (!supportsFileAttachments) {
+      for (const attachment of attachmentsToReleaseOnUploadCapabilityLoss(composerFiles)) {
+        releaseAttachmentUpload(attachment.id);
+      }
+    }
+    const uploadableAttachments = supportsFileAttachments
+      ? [...composerImages, ...composerFiles]
+      : composerImages;
+    for (const attachment of uploadableAttachments) {
       // A needs-reattach file has no bytes to upload and no upload to verify.
       if (attachment.type === "file" && composerFileNeedsReattach(attachment)) {
         continue;
@@ -876,6 +878,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     composerFiles,
     composerImages,
     environmentId,
+    supportsFileAttachments,
     supportsAttachmentUploads,
   ]);
 
@@ -2262,9 +2265,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   }, []);
 
   const restoreStashEntry = useCallback(
-    async (entry: PromptStashEntry) => {
-      const stashedFiles = entry.files ?? [];
-      if (stashedFiles.some((file) => file.environmentId !== environmentId)) {
+    async (menuEntry: PromptStashEntry) => {
+      const filesToVerify = menuEntry.files ?? [];
+      if (filesToVerify.some((file) => file.environmentId !== environmentId)) {
         toastManager.add({
           type: "error",
           title: "Stashed files belong to another environment",
@@ -2280,12 +2283,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       // BEFORE taking: the take removes the entry from durable storage, and a
       // tab closed during this await must still find it there after reload.
       const verifications = await Promise.all(
-        stashedFiles.map((file) =>
+        filesToVerify.map((file) =>
           verifyStashedAttachmentUpload({ environmentId, attachmentId: file.attachmentId }),
         ),
       );
       const expiredAttachmentIds = new Set(
-        stashedFiles
+        filesToVerify
           .filter((_, index) => verifications[index]?.status === "missing")
           .map((file) => file.attachmentId),
       );
@@ -2299,8 +2302,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
 
       // The take is also the double-activation guard (click + Enter): the
       // second caller finds the entry gone and stops here.
-      const { entry: taken, durable } = takeStashEntry(entry.id);
-      if (!taken) return;
+      const { entry, durable } = takeStashEntry(menuEntry.id);
+      if (!entry) return;
       if (!durable) {
         toastManager.add({
           type: "warning",
@@ -2331,6 +2334,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       let unrestoredFileNames: string[] = [];
       const expiredFileNames: string[] = [];
       let restoredFileCount = 0;
+      const stashedFiles = entry.files ?? [];
       if (stashedFiles.length > 0) {
         const fileDedupKey = (file: {
           readonly mimeType: string;
@@ -2951,19 +2955,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         continue;
       }
       if (attachmentKind === "image") {
-        // An extension-only image (empty MIME type) was classified by name.
-        // Give the File a real type so compression and upload treat it as one.
-        const inferredMimeType = file.type === "" ? inferImageMimeTypeFromName(file.name) : null;
-        acceptedImages.push(
-          inferredMimeType
-            ? new File([file], file.name, {
-                type: inferredMimeType,
-                lastModified: file.lastModified,
-              })
-            : file,
-        );
+        acceptedImages.push(normalizeComposerImageFileMimeType(file));
       } else {
-        if (maxFileAttachmentBytes === null) {
+        if (!supportsFileAttachments) {
           error = "This server does not support file attachments.";
           continue;
         }
@@ -3066,7 +3060,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       !shouldHandleComposerAttachmentPaste({
         files,
         plainText: event.clipboardData.getData("text/plain"),
-        maxFileAttachmentBytes,
       })
     ) {
       return;
@@ -3782,7 +3775,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 composerFiles.length > 0 && (
                   <div className="mb-3 flex flex-col gap-1">
                     {composerFiles.map((file) => {
-                      const upload = uploadsByImageId[file.id];
+                      const upload = supportsFileAttachments
+                        ? uploadsByImageId[file.id]
+                        : undefined;
                       const needsReattach = composerFileNeedsReattach(file);
                       return (
                         <div
@@ -4012,7 +4007,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   }
                   className="flex shrink-0 flex-nowrap items-center justify-end gap-2"
                 >
-                  {maxFileAttachmentBytes !== null && pendingUserInputs.length === 0 ? (
+                  {supportsFileAttachments && pendingUserInputs.length === 0 ? (
                     <>
                       <input
                         ref={attachmentInputRef}

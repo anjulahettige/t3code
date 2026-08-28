@@ -5,7 +5,9 @@ import type { ComposerFileAttachment, ComposerImageAttachment } from "../../comp
 import {
   attachmentsToReleaseOnUploadCapabilityLoss,
   classifyComposerAttachmentFile,
+  fileAttachmentCapabilityBlockReason,
   inferImageMimeTypeFromName,
+  normalizeComposerImageFileMimeType,
   shouldHandleComposerAttachmentPaste,
 } from "./composerAttachmentFiles";
 
@@ -34,7 +36,6 @@ describe("composer attachment files", () => {
       shouldHandleComposerAttachmentPaste({
         files: [file],
         plainText: "Copied text",
-        maxFileAttachmentBytes: 50 * 1024 * 1024,
       }),
     ).toBe(false);
   });
@@ -50,28 +51,29 @@ describe("composer attachment files", () => {
         shouldHandleComposerAttachmentPaste({
           files: [image],
           plainText: "Image caption",
-          maxFileAttachmentBytes: null,
         }),
       ).toBe(true);
     }
   });
 
-  it("only claims generic file pastes accepted by the current server", () => {
+  it("claims generic file-only pastes so the composer can report validation errors", () => {
     const file = new File(["report"], "report.pdf", { type: "application/pdf" });
-    const input = {
-      files: [file],
-      plainText: "",
-    };
 
-    expect(shouldHandleComposerAttachmentPaste({ ...input, maxFileAttachmentBytes: null })).toBe(
-      false,
-    );
-    expect(shouldHandleComposerAttachmentPaste({ ...input, maxFileAttachmentBytes: 1 })).toBe(
-      false,
-    );
-    expect(shouldHandleComposerAttachmentPaste({ ...input, maxFileAttachmentBytes: 10 })).toBe(
-      true,
-    );
+    expect(shouldHandleComposerAttachmentPaste({ files: [file], plainText: "" })).toBe(true);
+  });
+
+  it("routes empty and oversized generic files to composer feedback", () => {
+    const empty = new File([], "empty.txt", { type: "text/plain" });
+    const oversized = new File([new Uint8Array(1024)], "large.zip", {
+      type: "application/zip",
+    });
+
+    expect(shouldHandleComposerAttachmentPaste({ files: [empty], plainText: "" })).toBe(true);
+    expect(shouldHandleComposerAttachmentPaste({ files: [oversized], plainText: "" })).toBe(true);
+  });
+
+  it("ignores an empty clipboard", () => {
+    expect(shouldHandleComposerAttachmentPaste({ files: [], plainText: "" })).toBe(false);
   });
 
   it("falls back to the extension when an image arrives without a MIME type", () => {
@@ -81,6 +83,95 @@ describe("composer attachment files", () => {
     expect(classifyComposerAttachmentFile({ name: "no-extension", type: "" })).toBe("file");
     expect(inferImageMimeTypeFromName("photo.jpg")).toBe("image/jpeg");
     expect(inferImageMimeTypeFromName("archive.zip")).toBeNull();
+  });
+
+  it("infers supported image types from octet-stream files", () => {
+    const jpeg = new File(["jpeg"], "photo.jpg", { type: "application/octet-stream" });
+    const png = new File(["png"], "shot.PNG", { type: "application/octet-stream" });
+
+    expect(classifyComposerAttachmentFile(jpeg)).toBe("image");
+    expect(classifyComposerAttachmentFile(png)).toBe("image");
+    expect(normalizeComposerImageFileMimeType(jpeg).type).toBe("image/jpeg");
+    expect(normalizeComposerImageFileMimeType(png).type).toBe("image/png");
+  });
+
+  it("does not infer images for unknown extensions or specific conflicting MIME types", () => {
+    const binary = new File(["binary"], "archive.bin", { type: "application/octet-stream" });
+    const unknownDocument = new File(["pdf"], "report.pdf", {
+      type: "application/octet-stream",
+    });
+    const document = new File(["pdf"], "photo.jpg", { type: "application/pdf" });
+    const explicitImage = new File(["png"], "photo.jpg", { type: "image/png" });
+
+    expect(classifyComposerAttachmentFile(binary)).toBe("file");
+    expect(classifyComposerAttachmentFile(unknownDocument)).toBe("file");
+    expect(classifyComposerAttachmentFile(document)).toBe("file");
+    expect(classifyComposerAttachmentFile(explicitImage)).toBe("image");
+    expect(normalizeComposerImageFileMimeType(binary)).toBe(binary);
+    expect(normalizeComposerImageFileMimeType(document)).toBe(document);
+    expect(normalizeComposerImageFileMimeType(explicitImage)).toBe(explicitImage);
+  });
+
+  it("blocks retained files unless direct file uploads are supported", () => {
+    const unsupportedReason =
+      "This server does not accept file attachments right now. Remove the files to send.";
+    expect(
+      fileAttachmentCapabilityBlockReason({
+        fileCount: 1,
+        attachmentUploadsCapabilityKnown: true,
+        supportsAttachmentUploads: true,
+        maxFileAttachmentBytes: null,
+      }),
+    ).toBe(unsupportedReason);
+    expect(
+      fileAttachmentCapabilityBlockReason({
+        fileCount: 1,
+        attachmentUploadsCapabilityKnown: true,
+        supportsAttachmentUploads: false,
+        maxFileAttachmentBytes: 50 * 1024 * 1024,
+      }),
+    ).toBe(unsupportedReason);
+  });
+
+  it("keeps file capability feedback neutral while server config is unknown", () => {
+    expect(
+      fileAttachmentCapabilityBlockReason({
+        fileCount: 1,
+        attachmentUploadsCapabilityKnown: false,
+        supportsAttachmentUploads: false,
+        maxFileAttachmentBytes: null,
+      }),
+    ).toBe("Waiting for the server before file attachments can send");
+  });
+
+  it("allows retained files when direct file uploads are supported", () => {
+    expect(
+      fileAttachmentCapabilityBlockReason({
+        fileCount: 1,
+        attachmentUploadsCapabilityKnown: true,
+        supportsAttachmentUploads: true,
+        maxFileAttachmentBytes: 50 * 1024 * 1024,
+      }),
+    ).toBeNull();
+  });
+
+  it("does not block empty or image-only composers on legacy servers", () => {
+    expect(
+      fileAttachmentCapabilityBlockReason({
+        fileCount: 0,
+        attachmentUploadsCapabilityKnown: true,
+        supportsAttachmentUploads: false,
+        maxFileAttachmentBytes: null,
+      }),
+    ).toBeNull();
+    expect(
+      fileAttachmentCapabilityBlockReason({
+        fileCount: 0,
+        attachmentUploadsCapabilityKnown: false,
+        supportsAttachmentUploads: false,
+        maxFileAttachmentBytes: null,
+      }),
+    ).toBeNull();
   });
 
   it("keeps draft-persisted file uploads when the upload capability flips off", () => {
@@ -136,7 +227,6 @@ describe("composer attachment files", () => {
       shouldHandleComposerAttachmentPaste({
         files: [image],
         plainText: "Image caption",
-        maxFileAttachmentBytes: null,
       }),
     ).toBe(true);
   });

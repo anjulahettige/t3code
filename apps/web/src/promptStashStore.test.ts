@@ -163,6 +163,41 @@ describe("promptStashStore", () => {
     expect(entry?.pendingImageCount).toBe(0);
   });
 
+  it("takeEntry returns images and drop metadata finalized after a menu snapshot", () => {
+    const store = usePromptStashStore.getState();
+    store.stashEntry({ ...makeEntry({ id: "pending-restore" }), pendingImageCount: 1 });
+    const menuSnapshot = usePromptStashStore.getState().entries[0];
+    expect(menuSnapshot?.attachments).toEqual([]);
+
+    store.finalizeEntryImages("pending-restore", {
+      attachments: [
+        {
+          id: "img-finalized",
+          name: "finalized.webp",
+          mimeType: "image/webp",
+          sizeBytes: 12,
+          dataUrl: "data:image/webp;base64,BBBB",
+        },
+      ],
+      droppedImageNames: ["too-large.png"],
+      unreadableImageNames: ["unreadable.png"],
+    });
+
+    const { entry: taken } = store.takeEntry("pending-restore");
+    expect(taken).not.toBe(menuSnapshot);
+    expect(taken).toMatchObject({
+      attachments: [
+        {
+          id: "img-finalized",
+          name: "finalized.webp",
+        },
+      ],
+      droppedImageNames: ["too-large.png"],
+      unreadableImageNames: ["unreadable.png"],
+      pendingImageCount: 0,
+    });
+  });
+
   it("preserves uploaded file references without storing file contents", () => {
     const store = usePromptStashStore.getState();
     const file = {
