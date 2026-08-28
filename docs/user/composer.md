@@ -4,10 +4,10 @@ Messages can contain up to 120,000 characters. If a draft is longer, T3 Code kee
 composer and shows how many characters need to be removed. Shorten the draft or split it into
 multiple messages, then send again in the same thread.
 
-On servers that support direct uploads, you can attach images, text files, PDFs, ZIP archives, and
-other files. Each file can be up to 50 MB, and each message can contain up to eight attachments.
-Images keep their existing 10 MB limit. Files upload directly to the environment, where your agent
-can read, copy, or edit them by their file path.
+You can attach images up to 10 MB. On servers that support file uploads, web and desktop can also
+attach text files, PDFs, ZIP archives, and other files. Each file can be up to the limit advertised
+by the server, capped at 50 MB. Each message can contain up to eight attachments in total. Files
+upload directly to the environment, where your agent can read, copy, or edit them by their file path.
 
 On web and desktop, attachments upload as soon as you add them. The send button becomes available
 after every upload finishes. Failed uploads can be retried or removed. On mobile, attachments are
@@ -25,10 +25,10 @@ when starting a thread or changing an existing thread's model.
 
 ## Prompt stash
 
-Press `Cmd+S` on macOS or `Ctrl+S` on Windows and Linux to stash the current prompt and its
-attachments, then restore the entry later from the stash menu. Stashed files stay uploaded on the
-server for 24 hours. If you restore an entry after that, the file comes back with **Attach again**
-next to it. Attach the file again or remove it, then send.
+Use the default shortcut, `Cmd+S` on macOS or `Ctrl+S` on Windows and Linux, to stash the current
+prompt and its attachments after all file uploads finish. Restore the entry later from the stash
+menu. Stashed files stay uploaded on the server for 24 hours. If you restore an entry after that,
+the file comes back with **Attach again** next to it. Attach the file again or remove it, then send.
 
 ## Commands and skills
 
