@@ -647,10 +647,9 @@ export function ProviderInstanceCard({
               ) : null}
               {versionCodeNode}
               {versionAdvisory ? (
-                <ArrowUpCircleIcon
-                  className="size-3.5 shrink-0 text-update-foreground"
-                  aria-label="Update available"
-                />
+                <span role="img" aria-label="Update available" className="inline-flex shrink-0">
+                  <ArrowUpCircleIcon className="size-3.5 text-update-foreground" />
+                </span>
               ) : null}
             </span>
             <span className="mt-0.5 flex items-start gap-1.5 text-[13px] leading-[1.45] text-muted-foreground/80">

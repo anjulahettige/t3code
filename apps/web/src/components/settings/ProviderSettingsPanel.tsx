@@ -819,8 +819,10 @@ export function EnvironmentProviderSettings({
       <SettingsSection
         {...searchableSetting("providers")}
         headerAction={
-          <div className="flex items-center gap-1.5">
-            <ProviderLastChecked lastCheckedAt={lastCheckedAt} />
+          <div className="flex min-w-0 items-center gap-1.5">
+            <span className="hidden min-w-0 truncate sm:inline">
+              <ProviderLastChecked lastCheckedAt={lastCheckedAt} />
+            </span>
             {!readOnly ? (
               <>
                 <Tooltip>
