@@ -226,5 +226,11 @@ export function formatAttachmentSize(sizeBytes: number): string {
 
 /** User-facing rejection for a file over the effective upload limit. */
 export function fileAttachmentTooLargeMessage(name: string, maxUploadBytes: number): string {
-  return `'${name}' exceeds the ${Math.round(maxUploadBytes / (1024 * 1024))} MB attachment limit.`;
+  const maxUploadSize =
+    maxUploadBytes >= 1024 * 1024 && maxUploadBytes % (1024 * 1024) === 0
+      ? `${maxUploadBytes / (1024 * 1024)} MB`
+      : maxUploadBytes >= 1024 && maxUploadBytes % 1024 === 0
+        ? `${maxUploadBytes / 1024} KB`
+        : `${maxUploadBytes} ${maxUploadBytes === 1 ? "byte" : "bytes"}`;
+  return `'${name}' exceeds the ${maxUploadSize} attachment limit.`;
 }

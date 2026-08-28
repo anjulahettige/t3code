@@ -171,9 +171,30 @@ describe("file attachment limits", () => {
     );
   });
 
-  it("formats sizes and the too-large rejection", () => {
+  it("formats attachment row sizes", () => {
     expect(formatAttachmentSize(3 * 1024 * 1024)).toBe("3.0 MB");
     expect(formatAttachmentSize(1)).toBe("1 KB");
+  });
+
+  it("formats small upload limits without rounding them to zero MB", () => {
+    expect(fileAttachmentTooLargeMessage("tiny.txt", 1)).toBe(
+      "'tiny.txt' exceeds the 1 byte attachment limit.",
+    );
+    expect(fileAttachmentTooLargeMessage("small.txt", 1024)).toBe(
+      "'small.txt' exceeds the 1 KB attachment limit.",
+    );
+    expect(fileAttachmentTooLargeMessage("exact.txt", 1025)).toBe(
+      "'exact.txt' exceeds the 1025 bytes attachment limit.",
+    );
+    expect(fileAttachmentTooLargeMessage("medium.zip", 512 * 1024)).toBe(
+      "'medium.zip' exceeds the 512 KB attachment limit.",
+    );
+  });
+
+  it("keeps whole-MB upload limits for standard server caps", () => {
+    expect(fileAttachmentTooLargeMessage("one.bin", 1024 * 1024)).toBe(
+      "'one.bin' exceeds the 1 MB attachment limit.",
+    );
     expect(fileAttachmentTooLargeMessage("big.zip", 50 * 1024 * 1024)).toBe(
       "'big.zip' exceeds the 50 MB attachment limit.",
     );
