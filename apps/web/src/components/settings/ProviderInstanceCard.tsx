@@ -610,10 +610,7 @@ export function ProviderInstanceCard({
   // Healthy and disabled rows read fine from their text; only trouble gets a dot.
   const statusDotNode =
     statusKey === "warning" || statusKey === "error" ? (
-      <span
-        className={cn("mr-1.5 inline-block size-1.5 shrink-0 rounded-full", statusStyle.dot)}
-        aria-hidden
-      />
+      <span className={cn("size-1.5 shrink-0 rounded-full", statusStyle.dot)} aria-hidden />
     ) : null;
   const statusHeadlineNode = <span>{summary.headline}</span>;
   const statusLineClassName =
@@ -656,9 +653,11 @@ export function ProviderInstanceCard({
                 />
               ) : null}
             </span>
-            <span className="mt-0.5 line-clamp-2 text-[13px] leading-[1.45] text-muted-foreground/80">
-              {statusDotNode}
-              {summary.headline}
+            <span className="mt-0.5 flex items-start gap-1.5 text-[13px] leading-[1.45] text-muted-foreground/80">
+              {statusDotNode ? (
+                <span className="flex h-[1.45em] shrink-0 items-center">{statusDotNode}</span>
+              ) : null}
+              <span className="line-clamp-2">{summary.headline}</span>
             </span>
           </span>
         </button>
