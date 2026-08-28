@@ -1909,6 +1909,7 @@ function persistedComposerDraftHasUserContent(draft: PersistedComposerThreadDraf
   return (
     draft.prompt.trim().length > 0 ||
     draft.attachments.length > 0 ||
+    (draft.files?.length ?? 0) > 0 ||
     (draft.terminalContexts?.length ?? 0) > 0 ||
     (draft.elementContexts?.length ?? 0) > 0 ||
     (draft.previewAnnotations?.length ?? 0) > 0 ||

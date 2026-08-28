@@ -2353,6 +2353,95 @@ describe("composerDraftStore model seed migration", () => {
       vi.useRealTimers();
     }
   });
+
+  it("keeps v8 file-only draft sessions and their seeded models", async () => {
+    vi.useFakeTimers();
+    try {
+      const uploadedDraftId = DraftId.make("draft-legacy-uploaded-file");
+      const markerDraftId = DraftId.make("draft-legacy-file-marker");
+      const uploadedThreadId = ThreadId.make("thread-legacy-uploaded-file");
+      const markerThreadId = ThreadId.make("thread-legacy-file-marker");
+      const staleSelection = modelSelection(CODEX_DRIVER, "gpt-5.4");
+      const storage = useComposerDraftStore.persist.getOptions().storage;
+      expect(storage).toBeDefined();
+      storage?.setItem(COMPOSER_DRAFT_STORAGE_KEY, {
+        version: 8,
+        state: {
+          draftsByThreadKey: {
+            [uploadedDraftId]: {
+              prompt: "",
+              attachments: [],
+              files: [
+                {
+                  id: "file-uploaded",
+                  name: "uploaded-report.pdf",
+                  mimeType: "application/pdf",
+                  sizeBytes: 128,
+                  attachmentId: "attachment-uploaded",
+                  environmentId: TEST_ENVIRONMENT_ID,
+                },
+              ],
+              modelSelectionByProvider: { [CODEX_INSTANCE]: staleSelection },
+              activeProvider: CODEX_INSTANCE,
+            },
+            [markerDraftId]: {
+              prompt: "",
+              attachments: [],
+              files: [
+                {
+                  id: "file-needs-reattach",
+                  name: "local-notes.txt",
+                  mimeType: "text/plain",
+                  sizeBytes: 64,
+                },
+              ],
+              modelSelectionByProvider: { [CODEX_INSTANCE]: staleSelection },
+              activeProvider: CODEX_INSTANCE,
+              runtimeMode: "approval-required",
+            },
+          },
+          draftThreadsByThreadKey: {
+            [uploadedDraftId]: draftThread(uploadedThreadId),
+            [markerDraftId]: draftThread(markerThreadId),
+          },
+          logicalProjectDraftThreadKeyByLogicalProjectKey: {},
+          stickyModelSelectionByProvider: {},
+          stickyActiveProvider: null,
+        },
+      } as never);
+      await vi.advanceTimersByTimeAsync(300);
+
+      await useComposerDraftStore.persist.rehydrate();
+
+      expect(draftByKey(uploadedDraftId)).toMatchObject({
+        files: [
+          {
+            id: "file-uploaded",
+            name: "uploaded-report.pdf",
+            uploadedAttachmentId: "attachment-uploaded",
+            uploadEnvironmentId: TEST_ENVIRONMENT_ID,
+          },
+        ],
+        modelSelectionByProvider: { [CODEX_INSTANCE]: staleSelection },
+        activeProvider: CODEX_INSTANCE,
+      });
+      expect(draftByKey(markerDraftId)).toMatchObject({
+        files: [
+          {
+            id: "file-needs-reattach",
+            name: "local-notes.txt",
+            file: null,
+          },
+        ],
+        modelSelectionByProvider: { [CODEX_INSTANCE]: staleSelection },
+        activeProvider: CODEX_INSTANCE,
+        runtimeMode: "approval-required",
+      });
+      expect(draftByKey(markerDraftId)?.files.every(composerFileNeedsReattach)).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("composerDraftStore provider-scoped option updates", () => {
