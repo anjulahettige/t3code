@@ -224,7 +224,7 @@ export function ProviderSettingsPanel() {
         <div
           role="group"
           aria-label="Devices"
-          className="flex h-full w-max min-w-full border-b border-border/70 sm:px-1"
+          className="flex h-full w-max min-w-full border-b border-border/70 px-1"
         >
           {options.map((environment) => {
             const Icon = providerEnvironmentIcon(environment);
