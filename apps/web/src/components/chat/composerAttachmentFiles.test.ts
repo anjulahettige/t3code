@@ -1,4 +1,4 @@
-import { EnvironmentId } from "@t3tools/contracts";
+import { EnvironmentId, PROVIDER_SEND_TURN_MAX_FILE_BYTES } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import type { ComposerFileAttachment, ComposerImageAttachment } from "../../composerDraftStore";
@@ -6,6 +6,7 @@ import {
   attachmentsToReleaseOnUploadCapabilityLoss,
   classifyComposerAttachmentFile,
   fileAttachmentCapabilityBlockReason,
+  fileAttachmentStagingLimit,
   inferImageMimeTypeFromName,
   normalizeComposerImageFileMimeType,
   shouldHandleComposerAttachmentPaste,
@@ -112,31 +113,17 @@ describe("composer attachment files", () => {
     expect(normalizeComposerImageFileMimeType(explicitImage)).toBe(explicitImage);
   });
 
-  it("blocks retained files unless direct file uploads are supported", () => {
-    const unsupportedReason =
-      "This server does not accept file attachments right now. Remove the files to send.";
+  it("uses the hard local limit while server config is unknown", () => {
     expect(
-      fileAttachmentCapabilityBlockReason({
-        fileCount: 1,
-        attachmentUploadsCapabilityKnown: true,
-        supportsAttachmentUploads: true,
+      fileAttachmentStagingLimit({
+        attachmentUploadsCapabilityKnown: false,
+        supportsAttachmentUploads: false,
         maxFileAttachmentBytes: null,
       }),
-    ).toBe(unsupportedReason);
+    ).toBe(PROVIDER_SEND_TURN_MAX_FILE_BYTES);
     expect(
       fileAttachmentCapabilityBlockReason({
-        fileCount: 1,
-        attachmentUploadsCapabilityKnown: true,
-        supportsAttachmentUploads: false,
-        maxFileAttachmentBytes: 50 * 1024 * 1024,
-      }),
-    ).toBe(unsupportedReason);
-  });
-
-  it("keeps file capability feedback neutral while server config is unknown", () => {
-    expect(
-      fileAttachmentCapabilityBlockReason({
-        fileCount: 1,
+        files: [{ name: "pending.zip", sizeBytes: PROVIDER_SEND_TURN_MAX_FILE_BYTES }],
         attachmentUploadsCapabilityKnown: false,
         supportsAttachmentUploads: false,
         maxFileAttachmentBytes: null,
@@ -144,10 +131,70 @@ describe("composer attachment files", () => {
     ).toBe("Waiting for the server before file attachments can send");
   });
 
-  it("allows retained files when direct file uploads are supported", () => {
+  it("rejects local staging and send when known config has no file support", () => {
+    const unsupportedReason =
+      "This server does not accept file attachments right now. Remove the files to send.";
+    expect(
+      fileAttachmentStagingLimit({
+        attachmentUploadsCapabilityKnown: true,
+        supportsAttachmentUploads: true,
+        maxFileAttachmentBytes: null,
+      }),
+    ).toBeNull();
+    expect(
+      fileAttachmentStagingLimit({
+        attachmentUploadsCapabilityKnown: true,
+        supportsAttachmentUploads: false,
+        maxFileAttachmentBytes: 50 * 1024 * 1024,
+      }),
+    ).toBeNull();
     expect(
       fileAttachmentCapabilityBlockReason({
-        fileCount: 1,
+        files: [{ name: "report.pdf", sizeBytes: 1024 }],
+        attachmentUploadsCapabilityKnown: true,
+        supportsAttachmentUploads: true,
+        maxFileAttachmentBytes: null,
+      }),
+    ).toBe(unsupportedReason);
+    expect(
+      fileAttachmentCapabilityBlockReason({
+        files: [{ name: "report.pdf", sizeBytes: 1024 }],
+        attachmentUploadsCapabilityKnown: true,
+        supportsAttachmentUploads: false,
+        maxFileAttachmentBytes: 50 * 1024 * 1024,
+      }),
+    ).toBe(unsupportedReason);
+  });
+
+  it("blocks retained files that exceed a newly lower server limit", () => {
+    expect(
+      fileAttachmentCapabilityBlockReason({
+        files: [{ name: "large.zip", sizeBytes: 2 * 1024 * 1024 }],
+        attachmentUploadsCapabilityKnown: true,
+        supportsAttachmentUploads: true,
+        maxFileAttachmentBytes: 1024 * 1024,
+      }),
+    ).toBe("'large.zip' exceeds the 1 MB attachment limit.");
+  });
+
+  it("uses the confirmed server limit without exceeding the hard cap", () => {
+    expect(
+      fileAttachmentStagingLimit({
+        attachmentUploadsCapabilityKnown: true,
+        supportsAttachmentUploads: true,
+        maxFileAttachmentBytes: 1024 * 1024,
+      }),
+    ).toBe(1024 * 1024);
+    expect(
+      fileAttachmentStagingLimit({
+        attachmentUploadsCapabilityKnown: true,
+        supportsAttachmentUploads: true,
+        maxFileAttachmentBytes: PROVIDER_SEND_TURN_MAX_FILE_BYTES * 2,
+      }),
+    ).toBe(PROVIDER_SEND_TURN_MAX_FILE_BYTES);
+    expect(
+      fileAttachmentCapabilityBlockReason({
+        files: [{ name: "report.pdf", sizeBytes: 1024 }],
         attachmentUploadsCapabilityKnown: true,
         supportsAttachmentUploads: true,
         maxFileAttachmentBytes: 50 * 1024 * 1024,
@@ -158,7 +205,7 @@ describe("composer attachment files", () => {
   it("does not block empty or image-only composers on legacy servers", () => {
     expect(
       fileAttachmentCapabilityBlockReason({
-        fileCount: 0,
+        files: [],
         attachmentUploadsCapabilityKnown: true,
         supportsAttachmentUploads: false,
         maxFileAttachmentBytes: null,
@@ -166,7 +213,7 @@ describe("composer attachment files", () => {
     ).toBeNull();
     expect(
       fileAttachmentCapabilityBlockReason({
-        fileCount: 0,
+        files: [],
         attachmentUploadsCapabilityKnown: false,
         supportsAttachmentUploads: false,
         maxFileAttachmentBytes: null,

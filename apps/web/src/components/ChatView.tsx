@@ -5757,7 +5757,7 @@ function ChatViewContent(props: ChatViewProps) {
       return {
         supportsAttachmentUploads: liveSupportsAttachmentUploads,
         fileBlockReason: fileAttachmentCapabilityBlockReason({
-          fileCount: composerFilesSnapshot.length,
+          files: composerFilesSnapshot,
           attachmentUploadsCapabilityKnown: config !== null,
           supportsAttachmentUploads: liveSupportsAttachmentUploads,
           maxFileAttachmentBytes:

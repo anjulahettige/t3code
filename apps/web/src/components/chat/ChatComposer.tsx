@@ -85,6 +85,7 @@ import {
   attachmentsToReleaseOnUploadCapabilityLoss,
   classifyComposerAttachmentFile,
   fileAttachmentCapabilityBlockReason,
+  fileAttachmentStagingLimit,
   normalizeComposerImageFileMimeType,
   shouldHandleComposerAttachmentPaste,
 } from "./composerAttachmentFiles";
@@ -780,10 +781,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const nonPersistedComposerImageIds = composerDraft.nonPersistedImageIds;
   const uploadsByImageId = useAttachmentUploadStore((state) => state.uploadsByImageId);
   const needsReattachFileCount = composerFiles.filter(composerFileNeedsReattach).length;
-  const supportsFileAttachments = supportsAttachmentUploads && maxFileAttachmentBytes !== null;
-  const canReattachFiles = !attachmentUploadsCapabilityKnown || supportsFileAttachments;
+  const fileStagingLimit = fileAttachmentStagingLimit({
+    attachmentUploadsCapabilityKnown,
+    supportsAttachmentUploads,
+    maxFileAttachmentBytes,
+  });
   const fileCapabilityBlockReason = fileAttachmentCapabilityBlockReason({
-    fileCount: composerFiles.length,
+    files: composerFiles,
     attachmentUploadsCapabilityKnown,
     supportsAttachmentUploads,
     maxFileAttachmentBytes,
@@ -857,14 +861,18 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       }
       return;
     }
-    if (!supportsFileAttachments) {
-      for (const attachment of attachmentsToReleaseOnUploadCapabilityLoss(composerFiles)) {
-        releaseAttachmentUpload(attachment.id);
-      }
+    const invalidFiles =
+      maxFileAttachmentBytes === null
+        ? composerFiles
+        : composerFiles.filter((file) => file.sizeBytes > maxFileAttachmentBytes);
+    for (const attachment of attachmentsToReleaseOnUploadCapabilityLoss(invalidFiles)) {
+      releaseAttachmentUpload(attachment.id);
     }
-    const uploadableAttachments = supportsFileAttachments
-      ? [...composerImages, ...composerFiles]
-      : composerImages;
+    const uploadableFiles =
+      maxFileAttachmentBytes === null
+        ? []
+        : composerFiles.filter((file) => file.sizeBytes <= maxFileAttachmentBytes);
+    const uploadableAttachments = [...composerImages, ...uploadableFiles];
     for (const attachment of uploadableAttachments) {
       // A needs-reattach file has no bytes to upload and no upload to verify.
       if (attachment.type === "file" && composerFileNeedsReattach(attachment)) {
@@ -878,12 +886,20 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     composerFiles,
     composerImages,
     environmentId,
-    supportsFileAttachments,
+    maxFileAttachmentBytes,
     supportsAttachmentUploads,
   ]);
 
   useEffect(() => {
     for (const file of composerFiles) {
+      if (
+        !attachmentUploadsCapabilityKnown ||
+        !supportsAttachmentUploads ||
+        maxFileAttachmentBytes === null ||
+        file.sizeBytes > maxFileAttachmentBytes
+      ) {
+        continue;
+      }
       const upload = uploadsByImageId[file.id];
       if (upload?.status === "ready" && upload.environmentId === environmentId) {
         setComposerDraftFileUpload(
@@ -895,10 +911,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       }
     }
   }, [
+    attachmentUploadsCapabilityKnown,
     composerDraftTarget,
     composerFiles,
     environmentId,
+    maxFileAttachmentBytes,
     setComposerDraftFileUpload,
+    supportsAttachmentUploads,
     uploadsByImageId,
   ]);
 
@@ -2957,7 +2976,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       if (attachmentKind === "image") {
         acceptedImages.push(normalizeComposerImageFileMimeType(file));
       } else {
-        if (!supportsFileAttachments) {
+        if (fileStagingLimit === null) {
           error = "This server does not support file attachments.";
           continue;
         }
@@ -2965,8 +2984,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           error = `'${file.name}' is empty or could not be read.`;
           continue;
         }
-        if (file.size > maxFileAttachmentBytes) {
-          error = fileAttachmentTooLargeMessage(file.name, maxFileAttachmentBytes);
+        if (file.size > fileStagingLimit) {
+          error = fileAttachmentTooLargeMessage(file.name, fileStagingLimit);
           continue;
         }
         acceptedFiles.push({
@@ -3775,10 +3794,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 composerFiles.length > 0 && (
                   <div className="mb-3 flex flex-col gap-1">
                     {composerFiles.map((file) => {
-                      const upload = supportsFileAttachments
-                        ? uploadsByImageId[file.id]
-                        : undefined;
+                      const fileCanUpload =
+                        supportsAttachmentUploads &&
+                        maxFileAttachmentBytes !== null &&
+                        file.sizeBytes <= maxFileAttachmentBytes;
+                      const upload = fileCanUpload ? uploadsByImageId[file.id] : undefined;
                       const needsReattach = composerFileNeedsReattach(file);
+                      const canReattachFile =
+                        fileStagingLimit !== null && file.sizeBytes <= fileStagingLimit;
                       return (
                         <div
                           key={file.id}
@@ -3788,7 +3811,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                           <span className="min-w-0 flex-1 truncate">{file.name}</span>
                           <span className="shrink-0 text-xs text-secondary-label">
                             {needsReattach
-                              ? canReattachFiles
+                              ? canReattachFile
                                 ? "Attach again"
                                 : "Remove to send"
                               : upload?.status === "uploading"
@@ -4007,7 +4030,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   }
                   className="flex shrink-0 flex-nowrap items-center justify-end gap-2"
                 >
-                  {supportsFileAttachments && pendingUserInputs.length === 0 ? (
+                  {fileStagingLimit !== null && pendingUserInputs.length === 0 ? (
                     <>
                       <input
                         ref={attachmentInputRef}

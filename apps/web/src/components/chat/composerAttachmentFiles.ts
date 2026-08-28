@@ -1,9 +1,22 @@
-import { isProviderSendTurnSupportedImageMimeType } from "@t3tools/contracts";
+import {
+  isProviderSendTurnSupportedImageMimeType,
+  PROVIDER_SEND_TURN_MAX_FILE_BYTES,
+} from "@t3tools/contracts";
+import {
+  clampFileAttachmentUploadBytes,
+  fileAttachmentTooLargeMessage,
+} from "@t3tools/client-runtime/state/attachments";
 
 import type { ComposerFileAttachment, ComposerImageAttachment } from "../../composerDraftStore";
 import { isHeicImageFile } from "../../lib/imageCompression";
 
 type ComposerAttachmentFileKind = "image" | "file" | "unsupported-image";
+
+interface FileAttachmentCapabilityState {
+  readonly attachmentUploadsCapabilityKnown: boolean;
+  readonly supportsAttachmentUploads: boolean;
+  readonly maxFileAttachmentBytes: number | null;
+}
 
 const IMAGE_MIME_TYPE_BY_EXTENSION: Readonly<Record<string, string>> = {
   gif: "image/gif",
@@ -62,21 +75,36 @@ export function classifyComposerAttachmentFile(
   return isProviderSendTurnSupportedImageMimeType(file.type) ? "image" : "unsupported-image";
 }
 
+/** Byte limit for adding a generic file to the local composer draft. */
+export function fileAttachmentStagingLimit(input: FileAttachmentCapabilityState): number | null {
+  if (!input.attachmentUploadsCapabilityKnown) {
+    return PROVIDER_SEND_TURN_MAX_FILE_BYTES;
+  }
+  if (!input.supportsAttachmentUploads || input.maxFileAttachmentBytes === null) {
+    return null;
+  }
+  return clampFileAttachmentUploadBytes(input.maxFileAttachmentBytes);
+}
+
 /** Why retained generic files cannot send with the current server config. */
-export function fileAttachmentCapabilityBlockReason(input: {
-  readonly fileCount: number;
-  readonly attachmentUploadsCapabilityKnown: boolean;
-  readonly supportsAttachmentUploads: boolean;
-  readonly maxFileAttachmentBytes: number | null;
-}): string | null {
-  if (input.fileCount === 0) {
+export function fileAttachmentCapabilityBlockReason(
+  input: FileAttachmentCapabilityState & {
+    readonly files: ReadonlyArray<{ readonly name: string; readonly sizeBytes: number }>;
+  },
+): string | null {
+  if (input.files.length === 0) {
     return null;
   }
   if (!input.attachmentUploadsCapabilityKnown) {
     return "Waiting for the server before file attachments can send";
   }
-  if (!input.supportsAttachmentUploads || input.maxFileAttachmentBytes === null) {
+  const maxFileAttachmentBytes = fileAttachmentStagingLimit(input);
+  if (maxFileAttachmentBytes === null) {
     return "This server does not accept file attachments right now. Remove the files to send.";
+  }
+  const oversizedFile = input.files.find((file) => file.sizeBytes > maxFileAttachmentBytes);
+  if (oversizedFile) {
+    return fileAttachmentTooLargeMessage(oversizedFile.name, maxFileAttachmentBytes);
   }
   return null;
 }
