@@ -613,6 +613,10 @@ export function ProviderInstanceCard({
       <span className={cn("size-1.5 shrink-0 rounded-full", statusStyle.dot)} aria-hidden />
     ) : null;
   const statusHeadlineNode = <span>{summary.headline}</span>;
+  // Trouble states carry the server's explanation (a failed probe, a shadow
+  // home entry that is not a symlink, a missing binary). Show it wherever the
+  // headline shows so the user can act without opening the editor.
+  const needsAttention = statusKey === "warning" || statusKey === "error";
   const statusLineClassName =
     "flex min-w-0 flex-wrap items-center gap-x-1.5 text-[13px] leading-[1.45] text-muted-foreground/80";
 
@@ -656,7 +660,10 @@ export function ProviderInstanceCard({
               {statusDotNode ? (
                 <span className="flex h-[1.45em] shrink-0 items-center">{statusDotNode}</span>
               ) : null}
-              <span className="line-clamp-2">{summary.headline}</span>
+              <span className="line-clamp-2 [overflow-wrap:anywhere]">
+                {summary.headline}
+                {needsAttention && summary.detail ? ` · ${summary.detail}` : null}
+              </span>
             </span>
           </span>
         </button>
@@ -789,8 +796,13 @@ export function ProviderInstanceCard({
           <p className={statusLineClassName}>
             {statusDotNode}
             {statusHeadlineNode}
-            {summary.detail ? <span>· {summary.detail}</span> : null}
+            {summary.detail && !needsAttention ? <span>· {summary.detail}</span> : null}
           </p>
+          {summary.detail && needsAttention ? (
+            <p className="text-[13px] leading-[1.45] text-muted-foreground/80 [overflow-wrap:anywhere]">
+              {summary.detail}
+            </p>
+          ) : null}
         </div>
       </div>
 
