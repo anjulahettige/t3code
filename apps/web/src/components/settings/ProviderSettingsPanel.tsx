@@ -224,7 +224,7 @@ export function ProviderSettingsPanel() {
         <div
           role="group"
           aria-label="Devices"
-          className="flex h-full w-max min-w-full border-b border-border/70 px-3 sm:px-4"
+          className="flex h-full w-max min-w-full border-b border-border/70 sm:px-1"
         >
           {options.map((environment) => {
             const Icon = providerEnvironmentIcon(environment);
@@ -243,10 +243,12 @@ export function ProviderSettingsPanel() {
                     >
                       <Icon className="size-3.5 shrink-0" aria-hidden />
                       <span className="max-w-40 truncate">{environment.label}</span>
-                      <ConnectionStatusDot
-                        dotClassName={connectionPhaseDotClassName(environment.connection.phase)}
-                        pingClassName={connectionPhasePingClassName(environment.connection.phase)}
-                      />
+                      {environment.connection.phase !== "connected" ? (
+                        <ConnectionStatusDot
+                          dotClassName={connectionPhaseDotClassName(environment.connection.phase)}
+                          pingClassName={connectionPhasePingClassName(environment.connection.phase)}
+                        />
+                      ) : null}
                       <span className="sr-only">
                         {detail}, {statusText}
                       </span>
@@ -405,10 +407,11 @@ export function EnvironmentProviderSettings({
   readonly environmentLabel: string;
   readonly deviceTabs?: ReactNode;
   /**
-   * Render the full provider layout, greyed out and inert, when this session's
-   * credential lacks `orchestration:operate` on the environment. Showing the
-   * real configuration keeps the view honest; disabling interaction keeps
-   * every one of its writes from being offered and then rejected.
+   * Grey out and freeze every write control when this session's credential
+   * lacks `orchestration:operate` on the environment. Selecting providers and
+   * opening Advanced still work so the real configuration stays readable;
+   * switches, forms, and the health interval are inert so no write is
+   * offered and then rejected.
    */
   readonly readOnly?: boolean;
 }) {
@@ -426,7 +429,6 @@ export function EnvironmentProviderSettings({
   const [isAddInstanceDialogOpen, setIsAddInstanceDialogOpen] = useState(false);
   const [selectedInstanceId, setSelectedInstanceId] = useState<ProviderInstanceId | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const advancedVisible = readOnly || advancedOpen;
   const [updatingProviderDrivers, setUpdatingProviderDrivers] = useState<
     ReadonlySet<ProviderDriverKind>
   >(() => new Set());
@@ -817,16 +819,41 @@ export function EnvironmentProviderSettings({
       <SettingsSection
         {...searchableSetting("providers")}
         headerAction={
-          !readOnly ? (
-            <Button
-              size="compact"
-              variant="outline"
-              onClick={() => setIsAddInstanceDialogOpen(true)}
-            >
-              <PlusIcon className="size-3.5" />
-              Add provider
-            </Button>
-          ) : null
+          <div className="flex items-center gap-1.5">
+            <ProviderLastChecked lastCheckedAt={lastCheckedAt} />
+            {!readOnly ? (
+              <>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        size="icon-micro"
+                        variant="ghost-muted"
+                        disabled={isRefreshingProviders}
+                        onClick={() => void refreshProviders()}
+                        aria-label="Refresh provider status"
+                      >
+                        {isRefreshingProviders ? (
+                          <LoaderIcon className="size-3 animate-spin" />
+                        ) : (
+                          <RefreshCwIcon className="size-3" />
+                        )}
+                      </Button>
+                    }
+                  />
+                  <TooltipPopup side="top">Refresh provider status</TooltipPopup>
+                </Tooltip>
+                <Button
+                  size="compact"
+                  variant="outline"
+                  onClick={() => setIsAddInstanceDialogOpen(true)}
+                >
+                  <PlusIcon className="size-3.5" />
+                  Add provider
+                </Button>
+              </>
+            ) : null}
+          </div>
         }
       >
         {deviceTabs}
@@ -839,42 +866,12 @@ export function EnvironmentProviderSettings({
         <div className="space-y-1">
           <div className="overflow-hidden rounded-lg border border-border/70 lg:grid lg:h-[min(38rem,calc(100dvh-16rem))] lg:min-h-[30rem] lg:grid-cols-[20rem_minmax(0,1fr)]">
             <div className="border-b border-border/70 lg:flex lg:min-h-0 lg:flex-col lg:border-r lg:border-b-0">
-              <div className="flex min-h-9 shrink-0 items-center justify-between border-b border-border/70 px-3 text-[11px] font-medium text-muted-foreground">
-                <span>Provider</span>
-                <span>On</span>
-              </div>
-              <div className="lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
-                {rows.map((row) => renderProviderInstance(row, "list"))}
-              </div>
-              <div
-                className={cn(
-                  "flex min-h-10 shrink-0 items-center justify-between px-3",
-                  rows.length > 0 && "border-t border-border/60",
-                )}
-              >
-                <ProviderLastChecked lastCheckedAt={lastCheckedAt} />
-                {!readOnly ? (
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <Button
-                          size="icon-micro"
-                          variant="ghost-muted"
-                          disabled={isRefreshingProviders}
-                          onClick={() => void refreshProviders()}
-                          aria-label="Refresh provider status"
-                        >
-                          {isRefreshingProviders ? (
-                            <LoaderIcon className="size-3 animate-spin" />
-                          ) : (
-                            <RefreshCwIcon className="size-3" />
-                          )}
-                        </Button>
-                      }
-                    />
-                    <TooltipPopup side="top">Refresh provider status</TooltipPopup>
-                  </Tooltip>
-                ) : null}
+              <div className="divide-y divide-border/60 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
+                {rows.map((row) => (
+                  <div key={row.instanceId} className="p-1">
+                    {renderProviderInstance(row, "list")}
+                  </div>
+                ))}
               </div>
             </div>
 
@@ -887,23 +884,19 @@ export function EnvironmentProviderSettings({
             </div>
           </div>
 
-          <div
-            inert={readOnly}
-            aria-disabled={readOnly || undefined}
-            className={readOnly ? "opacity-50 select-none" : undefined}
-          >
-            <Collapsible
-              open={advancedVisible}
-              onOpenChange={setAdvancedOpen}
-              className="mt-2 border-t border-border/70"
-            >
-              <CollapsibleTrigger className="flex h-10 w-full items-center gap-2 px-3 text-xs text-muted-foreground hover:text-foreground sm:px-4">
-                <ChevronDownIcon
-                  className={cn("size-3 transition-transform", advancedVisible && "rotate-180")}
-                />
-                Advanced
-              </CollapsibleTrigger>
-              <CollapsibleContent>
+          <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen} className="mt-1">
+            <CollapsibleTrigger className="flex h-10 w-full items-center gap-2 px-3 text-xs text-muted-foreground hover:text-foreground sm:px-4">
+              <ChevronDownIcon
+                className={cn("size-3 transition-transform", advancedOpen && "rotate-180")}
+              />
+              Advanced
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <div
+                inert={readOnly}
+                aria-disabled={readOnly || undefined}
+                className={readOnly ? "opacity-50 select-none" : undefined}
+              >
                 <SettingsRow
                   title={
                     <span className="inline-flex items-center gap-1.5">
@@ -915,7 +908,7 @@ export function EnvironmentProviderSettings({
                       </PolicyTooltip>
                     </span>
                   }
-                  description="Set this to 0 seconds to use manual refresh only."
+                  description="Refresh availability, versions, auth state, and models in the background. 0 seconds turns background checks off."
                   resetAction={
                     providerHealthRefreshIntervalSeconds !==
                     defaultProviderHealthRefreshIntervalSeconds ? (
@@ -965,9 +958,9 @@ export function EnvironmentProviderSettings({
                     </div>
                   }
                 />
-              </CollapsibleContent>
-            </Collapsible>
-          </div>
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
         </div>
       </SettingsSection>
 
