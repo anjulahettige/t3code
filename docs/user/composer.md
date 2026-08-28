@@ -27,8 +27,10 @@ when starting a thread or changing an existing thread's model.
 
 Use the default shortcut, `Cmd+S` on macOS or `Ctrl+S` on Windows and Linux, to stash the current
 prompt and its attachments after all file uploads finish. Restore the entry later from the stash
-menu. Stashed files stay uploaded on the server for 24 hours. If you restore an entry after that,
-the file comes back with **Attach again** next to it. Attach the file again or remove it, then send.
+menu. Stashes that contain files must be restored in the environment where those files were
+uploaded. Stashed files stay uploaded on the server for 24 hours. If you restore an entry after
+that, the file comes back with **Attach again** next to it. Attach the file again or remove it, then
+send.
 
 ## Commands and skills
 
