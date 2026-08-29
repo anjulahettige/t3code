@@ -220,7 +220,7 @@ export function ProviderSettingsPanel() {
     options.length === 1 && options[0]?.entry.target._tag === "PrimaryConnectionTarget";
   const deviceTabs =
     !onlyPrimaryDevice && options.length > 0 ? (
-      <ScrollArea hideScrollbars scrollFade className="h-11 min-w-0 rounded-none">
+      <ScrollArea hideScrollbars scrollFade className="mx-3 h-11 min-w-0 rounded-none sm:mx-4">
         <div
           role="group"
           aria-label="Devices"
@@ -266,7 +266,7 @@ export function ProviderSettingsPanel() {
     ) : null;
 
   return (
-    <SettingsPageContainer width="expanded" className="gap-8">
+    <SettingsPageContainer className="gap-8">
       {options.length === 0 ? (
         <SettingsSection title="Providers">
           <SettingsRow
@@ -820,7 +820,13 @@ export function EnvironmentProviderSettings({
         {...searchableSetting("providers")}
         headerAction={
           <div className="flex min-w-0 items-center gap-1.5">
-            <span className="hidden min-w-0 truncate sm:inline">
+            {/*
+              The 11px size must sit on this flex item, not just the span
+              inside: the item's line box is struck from its own font size,
+              and an inherited 16px strut hangs the smaller text below the
+              vertical center of the row.
+            */}
+            <span className="hidden min-w-0 truncate text-[11px] sm:inline">
               <ProviderLastChecked lastCheckedAt={lastCheckedAt} />
             </span>
             {!readOnly ? (
@@ -845,14 +851,21 @@ export function EnvironmentProviderSettings({
                   />
                   <TooltipPopup side="top">Refresh provider status</TooltipPopup>
                 </Tooltip>
-                <Button
-                  size="compact"
-                  variant="outline"
-                  onClick={() => setIsAddInstanceDialogOpen(true)}
-                >
-                  <PlusIcon className="size-3.5" />
-                  Add provider
-                </Button>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        size="icon-micro"
+                        variant="ghost-muted"
+                        onClick={() => setIsAddInstanceDialogOpen(true)}
+                        aria-label="Add provider"
+                      >
+                        <PlusIcon className="size-3" />
+                      </Button>
+                    }
+                  />
+                  <TooltipPopup side="top">Add provider</TooltipPopup>
+                </Tooltip>
               </>
             ) : null}
           </div>
@@ -866,7 +879,7 @@ export function EnvironmentProviderSettings({
           />
         ) : null}
         <div className="space-y-1">
-          <div className="overflow-hidden rounded-lg border border-border/70 lg:grid lg:h-[min(38rem,calc(100dvh-16rem))] lg:min-h-[30rem] lg:grid-cols-[20rem_minmax(0,1fr)]">
+          <div className="mx-3 overflow-hidden rounded-lg border border-border/70 sm:mx-4 lg:grid lg:h-[min(38rem,calc(100dvh-16rem))] lg:min-h-[30rem] lg:grid-cols-[20rem_minmax(0,1fr)]">
             <div className="border-b border-border/70 lg:flex lg:min-h-0 lg:flex-col lg:border-r lg:border-b-0">
               <div className="divide-y divide-border/60 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
                 {rows.map((row) => (

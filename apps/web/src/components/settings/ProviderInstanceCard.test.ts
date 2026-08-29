@@ -41,7 +41,7 @@ describe("deriveProviderModelsForDisplay", () => {
     ).toEqual(["server-model", "kept-custom"]);
   });
 
-  it("shows a redacted provider email in Configuration", () => {
+  it("shows a redacted provider email in the editor header status line", () => {
     const instanceId = ProviderInstanceId.make("codex");
     const driver = ProviderDriverKind.make("codex");
     const liveProvider: ServerProvider = {
@@ -75,7 +75,7 @@ describe("deriveProviderModelsForDisplay", () => {
       }),
     );
 
-    expect(markup).toContain("Account email");
+    expect(markup).toContain("Authenticated as");
     expect(markup).toContain('aria-label="Toggle account email visibility"');
     expect(markup).toContain("blur-[2px]");
     expect(markup).not.toContain("developer@example.com");

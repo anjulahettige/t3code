@@ -128,8 +128,7 @@ function renderPanel(options?: {
 }
 
 function isAddProviderButton(element: ReactElement<Record<string, unknown>>): boolean {
-  const children = element.props.children;
-  return Array.isArray(children) && children.includes("Add provider");
+  return element.props["aria-label"] === "Add provider";
 }
 
 async function flushPromises(): Promise<void> {

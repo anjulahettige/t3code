@@ -437,7 +437,15 @@ export function ProviderInstanceCard({
   const summary = enabled
     ? getProviderSummary(liveProvider)
     : { headline: "Disabled", detail: null };
-  const authEmail = liveProvider?.auth.email;
+  const authEmail = liveProvider?.auth.email?.trim();
+  // The editor header folds the account email into the status line —
+  // "Authenticated as <email> · <plan>" — with the email redacted until its
+  // reveal toggle is clicked.
+  const isAuthenticated = enabled && liveProvider?.auth.status === "authenticated";
+  const authLabel =
+    enabled && liveProvider?.auth.status === "authenticated"
+      ? (liveProvider.auth.label ?? liveProvider.auth.type ?? null)
+      : null;
   const versionLabel = getProviderVersionLabel(liveProvider?.version);
   const versionAdvisory = getProviderVersionAdvisoryPresentation(liveProvider?.versionAdvisory);
   const updateCommand = versionAdvisory?.updateCommand ?? null;
@@ -795,7 +803,15 @@ export function ProviderInstanceCard({
           </div>
           <p className={statusLineClassName}>
             {statusDotNode}
-            {statusHeadlineNode}
+            {isAuthenticated && authEmail ? (
+              <>
+                <span>Authenticated as</span>
+                <ProviderAuthEmail email={authEmail} />
+                {authLabel ? <span>· {authLabel}</span> : null}
+              </>
+            ) : (
+              statusHeadlineNode
+            )}
             {summary.detail && !needsAttention ? <span>· {summary.detail}</span> : null}
           </p>
           {summary.detail && needsAttention ? (
@@ -832,19 +848,6 @@ export function ProviderInstanceCard({
           className="space-y-5 px-4 py-5 lg:h-full lg:overflow-y-auto"
           hidden={visibleTab !== "configuration"}
         >
-          {/*
-            Revealing the email is a read action, so it sits outside the inert
-            wrapper that freezes the write controls on read-only sessions.
-          */}
-          {authEmail?.trim() ? (
-            <div className="min-w-0">
-              <div className="text-xs font-medium text-foreground">Account email</div>
-              <div className="mt-1.5 flex min-h-8 min-w-0 items-center">
-                <ProviderAuthEmail email={authEmail} />
-              </div>
-            </div>
-          ) : null}
-
           <div
             inert={readOnly}
             aria-disabled={readOnly || undefined}
